@@ -197,7 +197,7 @@ Title: `[Task] Observe System Component Interaction`
 
 2. [Authorize](../../../wiki/swagger.md#authorize-in-swagger-ui) with [`API_KEY`](../../../wiki/dotenv-docker-secret.md#api_key) from [`.env.docker.secret`](../../../wiki/dotenv-docker-secret.md#what-is-envdockersecret).
 
-   You should see the `Swagger UI` page with the API documentation and available endpoints.
+   You should see the [`Swagger UI`](../../../wiki/swagger.md#swagger-ui) page with the [API](../../../wiki/web-development.md#api) documentation and available [endpoints](../../../wiki/web-development.md#endpoint).
 
    <!-- TODO write troubleshooting in wiki -->
 
@@ -205,7 +205,7 @@ Title: `[Task] Observe System Component Interaction`
 
    <h4>Page does not load</h4>
 
-   Verify that all `Docker` containers are running (see [1.2.3. Start the services](#123-start-the-services)).
+   Verify that all [`Docker` containers](../../../wiki/docker.md#container) are running (see [1.2.3. Start the services](#123-start-the-services)).
 
    <h4>Authorization fails</h4>
 
