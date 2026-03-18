@@ -396,6 +396,8 @@ Answer questions using:
 2. Live backend API data (via query_api tool)
 3. Source code files (via read_file tool)
 
+IMPORTANT: You MUST use at least one tool before answering. Never answer from your general knowledge alone.
+
 Tools available:
 - list_files(path): List files and directories at a path
 - read_file(path): Read the contents of a file
@@ -423,11 +425,12 @@ When to use each tool:
 - Explain the bug and suggest a fix
 
 **Important rules**:
-1. Always cite sources for wiki answers
-2. For API queries, include the endpoint path in your reasoning
-3. If query_api returns an error, analyze it and try to find the root cause in source code
-4. Maximum 10 tool calls total
-5. To test authentication, use query_api with use_auth=false
+1. ALWAYS use at least one tool before answering
+2. Always cite sources for wiki answers
+3. For API queries, include the endpoint path in your reasoning
+4. If query_api returns an error, analyze it and try to find the root cause in source code
+5. Maximum 10 tool calls total
+6. To test authentication, use query_api with use_auth=false
 
 Format your answer with the source at the end for wiki questions:
 "Your answer here. (source: wiki/file.md#section-name)"
