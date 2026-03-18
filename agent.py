@@ -27,22 +27,29 @@ MAX_TOOL_CALLS = 10
 
 
 def load_config() -> dict:
-    """Load configuration from .env.agent.secret file."""
+    """Load configuration from environment files."""
+    # Load LLM config from .env.agent.secret
     env_file = Path(__file__).parent / ".env.agent.secret"
-    
     if not env_file.exists():
         print(f"Error: Environment file not found: {env_file}", file=sys.stderr)
         sys.exit(1)
     
     load_dotenv(env_file)
     
+    # Also load LMS API key from .env.docker.secret
+    docker_env_file = Path(__file__).parent / ".env.docker.secret"
+    if docker_env_file.exists():
+        load_dotenv(docker_env_file, override=True)
+    
     config = {
         "api_key": os.getenv("LLM_API_KEY"),
         "api_base": os.getenv("LLM_API_BASE"),
         "model": os.getenv("LLM_MODEL"),
+        "lms_api_key": os.getenv("LMS_API_KEY"),
+        "agent_api_base_url": os.getenv("AGENT_API_BASE_URL", "http://localhost:42002"),
     }
     
-    missing = [key for key, value in config.items() if not value]
+    missing = [key for key in ["api_key", "api_base", "model", "lms_api_key"] if not config.get(key)]
     if missing:
         print(f"Error: Missing environment variables: {', '.join(missing)}", file=sys.stderr)
         sys.exit(1)
@@ -132,6 +139,75 @@ def list_files(path: str, project_root: Path) -> str:
         return f"Error listing directory: {str(e)}"
 
 
+def query_api(method: str, path: str, body: str = None, api_base: str = None, api_key: str = None, use_auth: bool = True) -> str:
+    """
+    Make an authenticated request to the backend API.
+    
+    Args:
+        method: HTTP method (GET, POST, PUT, DELETE)
+        path: API endpoint path (e.g., '/items/', '/analytics/completion-rate')
+        body: JSON request body for POST/PUT requests (optional)
+        api_base: Base URL of the API
+        api_key: API key for authentication
+        use_auth: Whether to use authentication (default True)
+        
+    Returns:
+        JSON string with status_code and body, or error message
+    """
+    import httpx
+    
+    try:
+        url = f"{api_base}{path}"
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        # Add authorization header only if use_auth is True and api_key is provided
+        if use_auth and api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        
+        print(f"Querying API: {method} {url} (auth={use_auth})", file=sys.stderr)
+        
+        # Parse body if provided
+        json_body = None
+        if body:
+            json_body = json.loads(body)
+        
+        # Make request
+        response = httpx.request(
+            method=method.upper(),
+            url=url,
+            headers=headers,
+            json=json_body,
+            timeout=30.0
+        )
+        
+        result = {
+            "status_code": response.status_code,
+            "body": response.text
+        }
+        
+        print(f"API response: {response.status_code}", file=sys.stderr)
+        
+        return json.dumps(result)
+        
+    except httpx.HTTPError as e:
+        return json.dumps({
+            "status_code": 0,
+            "body": f"HTTP error: {str(e)}"
+        })
+    except json.JSONDecodeError as e:
+        return json.dumps({
+            "status_code": 0,
+            "body": f"Invalid JSON body: {str(e)}"
+        })
+    except Exception as e:
+        return json.dumps({
+            "status_code": 0,
+            "body": f"Error: {str(e)}"
+        })
+
+
 # Tool schemas for OpenAI function calling
 TOOL_SCHEMAS = [
     {
@@ -167,11 +243,41 @@ TOOL_SCHEMAS = [
                 "required": ["path"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_api",
+            "description": "Query the backend Learning Management Service API. Use this to get real-time data about items, users, analytics, or test API endpoints. Returns status_code and response body.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "method": {
+                        "type": "string",
+                        "description": "HTTP method (GET, POST, PUT, DELETE)",
+                        "enum": ["GET", "POST", "PUT", "DELETE"]
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "API endpoint path (e.g., '/items/', '/analytics/completion-rate')"
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "JSON request body for POST/PUT requests (optional)"
+                    },
+                    "use_auth": {
+                        "type": "boolean",
+                        "description": "Whether to use authentication (default true). Set to false to test unauthenticated access."
+                    }
+                },
+                "required": ["method", "path"]
+            }
+        }
     }
 ]
 
 
-def execute_tool(tool_name: str, args: dict, project_root: Path) -> str:
+def execute_tool(tool_name: str, args: dict, project_root: Path, config: dict = None) -> str:
     """
     Execute a tool and return the result.
     
@@ -179,6 +285,7 @@ def execute_tool(tool_name: str, args: dict, project_root: Path) -> str:
         tool_name: Name of the tool to execute
         args: Tool arguments
         project_root: Project root directory
+        config: Configuration dictionary (for query_api)
         
     Returns:
         Tool result as string
@@ -189,6 +296,17 @@ def execute_tool(tool_name: str, args: dict, project_root: Path) -> str:
         return read_file(args.get("path", ""), project_root)
     elif tool_name == "list_files":
         return list_files(args.get("path", ""), project_root)
+    elif tool_name == "query_api":
+        if not config:
+            return json.dumps({"status_code": 0, "body": "Error: config not provided"})
+        return query_api(
+            args.get("method", "GET"),
+            args.get("path", ""),
+            args.get("body"),
+            config.get("agent_api_base_url", "http://localhost:42002"),
+            config.get("lms_api_key", ""),
+            args.get("use_auth", True)
+        )
     else:
         return f"Error: Unknown tool: {tool_name}"
 
@@ -261,53 +379,80 @@ def call_llm(messages: list, config: dict, tools: list = None) -> dict:
 def run_agentic_loop(question: str, config: dict) -> tuple[str, str, list]:
     """
     Run the agentic loop to answer a question using tools.
-    
+
     Args:
         question: User's question
         config: Configuration dictionary
-        
+
     Returns:
         Tuple of (answer, source, tool_calls_history)
     """
     project_root = Path(__file__).parent
-    
-    # System prompt
-    system_prompt = """You are a documentation assistant for a software engineering project.
-Answer questions using the project wiki documentation.
 
-You have access to these tools:
+    # System prompt
+    system_prompt = """You are a documentation and system assistant for a software engineering project.
+Answer questions using:
+1. Project wiki documentation (via list_files and read_file tools)
+2. Live backend API data (via query_api tool)
+3. Source code files (via read_file tool)
+
+Tools available:
 - list_files(path): List files and directories at a path
 - read_file(path): Read the contents of a file
+- query_api(method, path, body, use_auth): Query the backend API to get real-time data
 
-Process to answer questions:
-1. Use list_files to discover relevant wiki files
-2. Use read_file to read specific files and find the answer
-3. Include a source reference in your answer using this format: (source: wiki/file.md#section-name)
-4. If the answer spans multiple sections, cite the most relevant one
-5. Once you have the answer, respond with the final answer including the source
+When to use each tool:
 
-Be concise and accurate. Always cite your sources."""
+**Wiki questions** (documentation, workflows, how-to):
+- Use list_files to discover wiki files
+- Use read_file to read specific wiki files
+- Include source reference: (source: wiki/file.md#section)
+
+**System facts** (framework, ports, status codes, API structure):
+- Use query_api to get real-time system information
+- Example: "What framework does the backend use?" → query_api GET /health
+- For authentication status questions: use query_api with use_auth=false to test unauthenticated access
+
+**Data queries** (item count, user scores, analytics):
+- Use query_api to query the database via API endpoints
+- Example: "How many items?" → query_api GET /items/
+
+**Bug diagnosis**:
+- First use query_api to reproduce the error
+- Then use read_file to find the buggy code
+- Explain the bug and suggest a fix
+
+**Important rules**:
+1. Always cite sources for wiki answers
+2. For API queries, include the endpoint path in your reasoning
+3. If query_api returns an error, analyze it and try to find the root cause in source code
+4. Maximum 10 tool calls total
+5. To test authentication, use query_api with use_auth=false
+
+Format your answer with the source at the end for wiki questions:
+"Your answer here. (source: wiki/file.md#section-name)"
+"""
 
     # Initialize messages
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": question}
     ]
-    
+
     # Track tool calls
     tool_calls_history = []
     tool_call_count = 0
-    
+
     print(f"Starting agentic loop for question: {question}", file=sys.stderr)
-    
+
     # Agentic loop
     while tool_call_count < MAX_TOOL_CALLS:
         # Call LLM with tool schemas
         response = call_llm(messages, config, tools=TOOL_SCHEMAS)
-        
+
         # Get the assistant message
         assistant_message = response.choices[0].message
-        
+
         # Check for tool calls
         if hasattr(assistant_message, 'tool_calls') and assistant_message.tool_calls:
             # Process tool calls
@@ -315,20 +460,20 @@ Be concise and accurate. Always cite your sources."""
                 tool_name = tool_call.function.name
                 tool_args = json.loads(tool_call.function.arguments)
                 tool_call_id = tool_call.id
-                
+
                 # Execute tool
-                result = execute_tool(tool_name, tool_args, project_root)
-                
+                result = execute_tool(tool_name, tool_args, project_root, config)
+
                 # Record tool call
                 tool_calls_history.append({
                     "tool": tool_name,
                     "args": tool_args,
                     "result": result
                 })
-                
+
                 tool_call_count += 1
                 print(f"Tool call {tool_call_count}: {tool_name} completed", file=sys.stderr)
-                
+
                 # Add tool call and result to messages
                 messages.append({
                     "role": "assistant",

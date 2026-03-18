@@ -146,6 +146,75 @@ def test_wiki_files_question():
     print(f"✓ Test passed: answer='{response['answer'][:50]}...', tool_calls={len(response['tool_calls'])}")
 
 
+def test_framework_question():
+    """Test that agent uses read_file to answer framework question (Task 3)."""
+    project_root = Path(__file__).parent.parent
+    
+    # Test question about backend framework
+    question = "What Python web framework does this project's backend use?"
+    
+    response = run_agent(question, project_root)
+    
+    # Verify answer exists
+    assert "answer" in response, "Missing 'answer' field"
+    assert len(response["answer"].strip()) > 0, "'answer' cannot be empty"
+    
+    # Verify answer contains FastAPI
+    answer_lower = response["answer"].lower()
+    assert "fastapi" in answer_lower, f"Expected 'FastAPI' in answer, got: {response['answer'][:100]}"
+    
+    # Verify tool_calls is not empty
+    assert "tool_calls" in response, "Missing 'tool_calls' field"
+    assert isinstance(response["tool_calls"], list), "'tool_calls' must be an array"
+    assert len(response["tool_calls"]) > 0, "Expected tool calls for framework question"
+    
+    # Verify read_file was used
+    tool_names = [tc.get("tool") for tc in response["tool_calls"]]
+    assert "read_file" in tool_names, f"Expected read_file in tool_calls, got: {tool_names}"
+    
+    print(f"✓ Test passed: answer='{response['answer'][:50]}...', source='{response.get('source', 'N/A')}'")
+
+
+def test_item_count_question():
+    """Test that agent uses query_api to answer item count question (Task 3)."""
+    project_root = Path(__file__).parent.parent
+    
+    # Test question about item count
+    question = "How many items are currently stored in the database?"
+    
+    response = run_agent(question, project_root)
+    
+    # Verify answer exists
+    assert "answer" in response, "Missing 'answer' field"
+    assert len(response["answer"].strip()) > 0, "'answer' cannot be empty"
+    
+    # Verify answer contains a number
+    import re
+    numbers = re.findall(r'\d+', response["answer"])
+    assert len(numbers) > 0, f"Expected a number in answer, got: {response['answer']}"
+    
+    # Verify tool_calls is not empty
+    assert "tool_calls" in response, "Missing 'tool_calls' field"
+    assert isinstance(response["tool_calls"], list), "'tool_calls' must be an array"
+    assert len(response["tool_calls"]) > 0, "Expected tool calls for item count question"
+    
+    # Verify query_api was used
+    tool_names = [tc.get("tool") for tc in response["tool_calls"]]
+    assert "query_api" in tool_names, f"Expected query_api in tool_calls, got: {tool_names}"
+    
+    # Verify query_api call has correct structure
+    query_api_call = next((tc for tc in response["tool_calls"] if tc.get("tool") == "query_api"), None)
+    assert query_api_call is not None, "query_api call not found"
+    assert "args" in query_api_call, "query_api missing 'args' field"
+    assert "result" in query_api_call, "query_api missing 'result' field"
+    assert query_api_call["args"].get("method") == "GET", \
+        f"query_api should have method='GET', got: {query_api_call['args']}"
+    assert "/items/" in query_api_call["args"].get("path", ""), \
+        f"query_api should have path='/items/', got: {query_api_call['args']}"
+    
+    print(f"✓ Test passed: answer='{response['answer'][:50]}...', tool_calls={len(response['tool_calls'])}")
+
+
 if __name__ == "__main__":
     print("Running Task 1 test...")
     test_agent_returns_valid_json()
@@ -153,5 +222,9 @@ if __name__ == "__main__":
     print("\nRunning Task 2 tests...")
     test_merge_conflict_question()
     test_wiki_files_question()
+    
+    print("\nRunning Task 3 tests...")
+    test_framework_question()
+    test_item_count_question()
     
     print("\nAll tests passed!")

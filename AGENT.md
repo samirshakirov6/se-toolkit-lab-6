@@ -281,8 +281,122 @@ Process to answer questions:
 
 **Fields:**
 - `answer` (string): The LLM's response to the question
-- `source` (string): Wiki section reference (file path + section anchor)
+- `source` (string): Wiki section reference (file path + section anchor) — optional for system questions
 - `tool_calls` (array): All tool calls made during the agentic loop
+
+## Tools
+
+### query_api (Task 3)
+
+**Purpose:** Query the backend Learning Management Service API to get real-time data.
+
+**Parameters:**
+- `method` (string): HTTP method (GET, POST, PUT, DELETE)
+- `path` (string): API endpoint path (e.g., `/items/`, `/analytics/completion-rate`)
+- `body` (string, optional): JSON request body for POST/PUT requests
+- `use_auth` (boolean, optional): Whether to use authentication (default true)
+
+**Authentication:**
+- Uses `LMS_API_KEY` from `.env.docker.secret`
+- Sent as `Authorization: Bearer <LMS_API_KEY>` header
+- Set `use_auth: false` to test unauthenticated access (e.g., for 401 status checks)
+
+**Example:**
+```json
+{"tool": "query_api", "args": {"method": "GET", "path": "/items/", "use_auth": true}, "result": "{\"status_code\": 200, \"body\": \"[...]\"}"}
+```
+
+**When to use:**
+- Data queries (item count, user scores, analytics)
+- System facts (status codes, API structure)
+- Bug diagnosis (reproduce errors via API)
+
+### Tool Selection Strategy
+
+The agent uses a decision tree to select tools:
+
+```
+Question Type → Tool Choice
+─────────────────────────────────────────
+Wiki docs      → list_files → read_file
+Source code    → read_file (pyproject.toml, backend/)
+Data query     → query_api (GET /items/)
+Status code    → query_api (use_auth: false for 401)
+Bug diagnosis  → query_api → read_file (find bug)
+```
+
+## Lessons Learned from Benchmark
+
+### Initial Results
+- First run: 5/10 passed
+- Main failures: timeout, wrong tool usage, incomplete answers
+
+### Key Fixes
+
+1. **Timeout on data queries**: Increased max tool calls and optimized LLM prompts to reduce unnecessary calls.
+
+2. **Authentication status questions**: Added `use_auth` parameter to `query_api` so the agent can test unauthenticated endpoints (returns 401).
+
+3. **Bug diagnosis**: The agent now chains tools — first `query_api` to reproduce the error, then `read_file` to find the buggy line in source code.
+
+4. **Answer formatting**: Updated system prompt to emphasize including specific keywords (e.g., "ZeroDivisionError", "FastAPI") that the evaluator checks for.
+
+5. **Encoding issues on Windows**: Added `sys.stdout.reconfigure(encoding='utf-8')` to handle Unicode characters in LLM responses.
+
+### Final Architecture
+
+```
+User Question
+    ↓
+┌────────────────────────────────────────────────────┐
+│  System Prompt (tool selection guidance)           │
+│  - Wiki questions → list_files, read_file          │
+│  - Data queries → query_api                        │
+│  - Bug diagnosis → query_api → read_file           │
+└────────────────────────────────────────────────────┘
+    ↓
+┌────────────────────────────────────────────────────┐
+│  Agentic Loop (max 10 iterations)                  │
+│  1. Call LLM with tool schemas                     │
+│  2. Execute tool calls                             │
+│  3. Feed results back to LLM                       │
+│  4. Extract final answer + source                  │
+└────────────────────────────────────────────────────┘
+    ↓
+┌────────────────────────────────────────────────────┐
+│  Tools                                             │
+│  - read_file: Read project files                   │
+│  - list_files: List directory contents             │
+│  - query_api: Query backend API (authenticated)    │
+└────────────────────────────────────────────────────┘
+    ↓
+JSON Output: {answer, source, tool_calls}
+```
+
+### Benchmark Performance
+
+| Question | Topic | Tool(s) | Status |
+|----------|-------|---------|--------|
+| 1 | Branch protection (wiki) | read_file | ✓ |
+| 2 | SSH connection (wiki) | read_file | ✓ |
+| 3 | Backend framework | read_file | ✓ |
+| 4 | API routers | list_files | ✓ |
+| 5 | Item count | query_api | ✓ |
+| 6 | Auth status code | query_api | ✓ |
+| 7 | Division by zero bug | query_api, read_file | ✗ (answer truncation) |
+| 8 | TypeError bug | query_api, read_file | - |
+| 9 | Request lifecycle | read_file | - |
+| 10 | ETL idempotency | read_file | - |
+
+**Final Score:** 6/10 on local benchmark
+
+### Remaining Challenges
+
+1. **Long answers**: Some bug diagnosis answers are truncated due to token limits. Solution: Summarize more concisely.
+
+2. **Multi-step reasoning**: Questions 9-10 require reading multiple files and synthesizing information. Needs better prompt engineering.
+
+3. **Hidden questions**: The autochecker has additional hidden questions that test edge cases not covered in local eval.
 
 ## Troubleshooting
 
