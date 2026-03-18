@@ -1,10 +1,11 @@
 """
-Regression tests for agent.py (Task 1).
+Regression tests for agent.py (Task 1 & Task 2).
 
 These tests verify that agent.py:
 - Runs successfully with a question
 - Outputs valid JSON
-- Contains required 'answer' and 'tool_calls' fields
+- Contains required fields (answer, source, tool_calls)
+- Uses tools correctly (Task 2)
 """
 
 import json
@@ -13,21 +14,15 @@ import sys
 from pathlib import Path
 
 
-def test_agent_returns_valid_json():
-    """Test that agent.py returns valid JSON with required fields."""
-    # Path to agent.py in project root
-    project_root = Path(__file__).parent.parent
+def run_agent(question: str, project_root: Path) -> dict:
+    """Helper to run agent.py and parse JSON response."""
     agent_path = project_root / "agent.py"
     
-    # Test question
-    question = "What is 2 + 2?"
-    
-    # Run agent.py as subprocess using uv from PATH
     result = subprocess.run(
         ["uv", "run", str(agent_path), question],
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=120,
         cwd=str(project_root),
     )
     
@@ -39,7 +34,6 @@ def test_agent_returns_valid_json():
     assert result.returncode == 0, f"Agent exited with code {result.returncode}: {result.stderr}"
     
     # Parse stdout as JSON
-    # Filter out any non-JSON lines from stdout
     stdout_lines = result.stdout.strip().split('\n')
     json_line = None
     
@@ -53,12 +47,26 @@ def test_agent_returns_valid_json():
     
     assert json_line is not None, f"No valid JSON found in stdout: {result.stdout}"
     
-    response = json.loads(json_line)
+    return json.loads(json_line)
+
+
+def test_agent_returns_valid_json():
+    """Test that agent.py returns valid JSON with required fields (Task 1)."""
+    project_root = Path(__file__).parent.parent
+    
+    # Test question
+    question = "What is 2 + 2?"
+    
+    response = run_agent(question, project_root)
     
     # Verify 'answer' field exists and is non-empty
     assert "answer" in response, "Missing 'answer' field in response"
     assert isinstance(response["answer"], str), "'answer' must be a string"
     assert len(response["answer"].strip()) > 0, "'answer' cannot be empty"
+    
+    # Verify 'source' field exists (Task 2)
+    assert "source" in response, "Missing 'source' field in response"
+    assert isinstance(response["source"], str), "'source' must be a string"
     
     # Verify 'tool_calls' field exists and is an array
     assert "tool_calls" in response, "Missing 'tool_calls' field in response"
@@ -67,6 +75,83 @@ def test_agent_returns_valid_json():
     print(f"✓ Test passed: answer='{response['answer'][:50]}...'")
 
 
+def test_merge_conflict_question():
+    """Test that agent uses read_file to answer merge conflict question (Task 2)."""
+    project_root = Path(__file__).parent.parent
+    
+    # Test question about merge conflicts
+    question = "How do you resolve a merge conflict?"
+    
+    response = run_agent(question, project_root)
+    
+    # Verify answer exists
+    assert "answer" in response, "Missing 'answer' field"
+    assert len(response["answer"].strip()) > 0, "'answer' cannot be empty"
+    
+    # Verify source exists and contains wiki reference
+    assert "source" in response, "Missing 'source' field"
+    assert "wiki/" in response["source"] or response["source"] == "general", \
+        f"Source should reference wiki file, got: {response['source']}"
+    
+    # Verify tool_calls is not empty
+    assert "tool_calls" in response, "Missing 'tool_calls' field"
+    assert isinstance(response["tool_calls"], list), "'tool_calls' must be an array"
+    assert len(response["tool_calls"]) > 0, "Expected tool calls for wiki question"
+    
+    # Verify read_file was used
+    tool_names = [tc.get("tool") for tc in response["tool_calls"]]
+    assert "read_file" in tool_names, f"Expected read_file in tool_calls, got: {tool_names}"
+    
+    # Verify source contains wiki file path
+    if response["source"] != "general":
+        assert "wiki/" in response["source"] and ".md" in response["source"], \
+            f"Source should be wiki file reference, got: {response['source']}"
+    
+    print(f"✓ Test passed: answer='{response['answer'][:50]}...', source='{response['source']}'")
+
+
+def test_wiki_files_question():
+    """Test that agent uses list_files to answer wiki files question (Task 2)."""
+    project_root = Path(__file__).parent.parent
+    
+    # Test question about wiki files
+    question = "What files are in the wiki?"
+    
+    response = run_agent(question, project_root)
+    
+    # Verify answer exists
+    assert "answer" in response, "Missing 'answer' field"
+    assert len(response["answer"].strip()) > 0, "'answer' cannot be empty"
+    
+    # Verify source exists
+    assert "source" in response, "Missing 'source' field"
+    
+    # Verify tool_calls is not empty
+    assert "tool_calls" in response, "Missing 'tool_calls' field"
+    assert isinstance(response["tool_calls"], list), "'tool_calls' must be an array"
+    assert len(response["tool_calls"]) > 0, "Expected tool calls for wiki question"
+    
+    # Verify list_files was used
+    tool_names = [tc.get("tool") for tc in response["tool_calls"]]
+    assert "list_files" in tool_names, f"Expected list_files in tool_calls, got: {tool_names}"
+    
+    # Verify tool call has correct structure
+    list_files_call = next((tc for tc in response["tool_calls"] if tc.get("tool") == "list_files"), None)
+    assert list_files_call is not None, "list_files call not found"
+    assert "args" in list_files_call, "list_files missing 'args' field"
+    assert "result" in list_files_call, "list_files missing 'result' field"
+    assert list_files_call["args"].get("path") == "wiki", \
+        f"list_files should have path='wiki', got: {list_files_call['args']}"
+    
+    print(f"✓ Test passed: answer='{response['answer'][:50]}...', tool_calls={len(response['tool_calls'])}")
+
+
 if __name__ == "__main__":
+    print("Running Task 1 test...")
     test_agent_returns_valid_json()
-    print("All tests passed!")
+    
+    print("\nRunning Task 2 tests...")
+    test_merge_conflict_question()
+    test_wiki_files_question()
+    
+    print("\nAll tests passed!")

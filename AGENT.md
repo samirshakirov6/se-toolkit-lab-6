@@ -2,7 +2,12 @@
 
 ## Overview
 
-This project implements a CLI agent (`agent.py`) that connects to an LLM and returns structured JSON answers. The agent serves as the foundation for a more advanced agentic system with tool-calling capabilities (to be implemented in Tasks 2-3).
+This project implements a CLI agent (`agent.py`) that connects to an LLM and returns structured JSON answers. The agent has tool-calling capabilities to navigate the project wiki and answer questions with proper source references.
+
+**Current capabilities (Task 2):**
+- Two tools: `read_file`, `list_files`
+- Agentic loop with max 10 tool calls
+- Source extraction from answers
 
 ## LLM Provider
 
@@ -156,17 +161,128 @@ The regression test verifies:
 | `python-dotenv` | Environment variable loading |
 | `pydantic` | Data validation (for future tasks) |
 
-## Future Enhancements (Tasks 2-3)
+## Tools
 
-- **Task 2:** Add tool-calling capabilities
-  - Define tools (file read, API query, etc.)
-  - Parse tool calls from LLM response
-  - Execute tools and return results
+The agent has two tools for navigating the project wiki:
 
-- **Task 3:** Implement agentic loop
-  - Multi-turn conversation support
-  - Tool result feedback to LLM
-  - Final answer synthesis
+### read_file
+
+**Purpose:** Read the contents of a file from the project repository.
+
+**Parameters:**
+- `path` (string, required): Relative path from project root (e.g., `wiki/git-workflow.md`)
+
+**Security:**
+- Validates path does not contain `../` traversal
+- Verifies resolved path is within project directory
+- Returns error message if file doesn't exist or is outside bounds
+
+**Example:**
+```json
+{"tool": "read_file", "args": {"path": "wiki/git-workflow.md"}, "result": "# Git Workflow\n..."}
+```
+
+### list_files
+
+**Purpose:** List files and directories at a given path.
+
+**Parameters:**
+- `path` (string, required): Relative directory path from project root (e.g., `wiki`)
+
+**Security:**
+- Validates path does not contain `../` traversal
+- Verifies resolved path is within project directory
+- Returns error message if directory doesn't exist or is outside bounds
+
+**Example:**
+```json
+{"tool": "list_files", "args": {"path": "wiki"}, "result": "git-workflow.md\ngit.md\n..."}
+```
+
+## Agentic Loop
+
+### Algorithm
+
+```
+1. Initialize messages with system + user prompt
+2. Initialize tool_calls_history = []
+3. Loop (max 10 iterations):
+   a. Call LLM with messages + tool schemas
+   b. If LLM returns tool_calls:
+      - Execute each tool
+      - Record tool call with result
+      - Add tool_call and result to messages
+      - Continue loop
+   c. If LLM returns text message:
+      - Extract answer and source
+      - Break loop
+4. Output JSON with answer, source, tool_calls
+```
+
+### Message Flow
+
+```
+User Question
+    ↓
+┌──────────────────────────────────────┐
+│  LLM (with tool schemas)             │
+└──────────────────────────────────────┘
+    ↓
+Has tool_calls?
+    ├─ Yes → Execute tools → Add results to messages → Back to LLM
+    └─ No  → Extract answer + source → Output JSON
+```
+
+### System Prompt Strategy
+
+The system prompt instructs the LLM to:
+
+1. **Use tools to find answers** in the wiki documentation
+2. **Always include source references** (file path + section anchor)
+3. **Use list_files first** to discover relevant files
+4. **Use read_file** to read specific files
+5. **Stop after finding the answer**
+
+Example:
+```
+You are a documentation assistant for a software engineering project.
+Answer questions using the project wiki documentation.
+
+You have access to these tools:
+- list_files(path): List files and directories at a path
+- read_file(path): Read the contents of a file
+
+Process to answer questions:
+1. Use list_files to discover relevant wiki files
+2. Use read_file to read specific files and find the answer
+3. Include a source reference in your answer using this format: (source: wiki/file.md#section-name)
+```
+
+## Output Format
+
+```json
+{
+  "answer": "Edit the conflicting file, choose which changes to keep, then stage and commit.",
+  "source": "wiki/git-vscode.md#resolve-a-merge-conflict",
+  "tool_calls": [
+    {
+      "tool": "list_files",
+      "args": {"path": "wiki"},
+      "result": "git-workflow.md\ngit.md\n..."
+    },
+    {
+      "tool": "read_file",
+      "args": {"path": "wiki/git-vscode.md"},
+      "result": "# Git in VS Code\n\n..."
+    }
+  ]
+}
+```
+
+**Fields:**
+- `answer` (string): The LLM's response to the question
+- `source` (string): Wiki section reference (file path + section anchor)
+- `tool_calls` (array): All tool calls made during the agentic loop
 
 ## Troubleshooting
 
