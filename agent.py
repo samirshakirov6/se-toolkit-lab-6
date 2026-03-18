@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3 
 """
 Agent CLI - Calls an LLM with tool-calling capabilities.
 
