@@ -477,17 +477,10 @@ Format your answer with the source at the end for wiki questions:
 
     # Check if LLM config is available
     if not config.get("api_key") or not config.get("api_base") or not config.get("model"):
-        # Return error as JSON for autochecker compatibility
-        # Don't exit with code 1 - return JSON and let autochecker handle it
+        # Return error - don't print here, let main() handle JSON output
         error_msg = "LLM configuration not provided. Set LLM_API_KEY, LLM_API_BASE, and LLM_MODEL environment variables."
         print(f"Warning: {error_msg}", file=sys.stderr)
-        response = {
-            "answer": f"Error: {error_msg}",
-            "source": "general",
-            "tool_calls": []
-        }
-        print(json.dumps(response, ensure_ascii=False))
-        return "Error: LLM configuration not provided", "general", []
+        return f"Error: {error_msg}", "general", []
 
     # Track tool calls
     tool_calls_history = []
@@ -596,27 +589,39 @@ def main() -> None:
     )
     
     args = parser.parse_args()
-    
+
     if not args.question.strip():
-        print("Error: Question cannot be empty", file=sys.stderr)
-        sys.exit(1)
-    
+        # Return JSON error for empty question
+        response = {
+            "answer": "Error: Question cannot be empty",
+            "source": "general",
+            "tool_calls": []
+        }
+        print(json.dumps(response, ensure_ascii=False))
+        sys.exit(0)
+
     try:
         config = load_config()
         answer, source, tool_calls = run_agentic_loop(args.question, config)
         response = format_response(answer, source, tool_calls)
-        
+
         # Output JSON to stdout (single line, ensure ASCII for Windows compatibility)
         # Use sys.stdout.buffer for proper Unicode handling
         import io
         sys.stdout.reconfigure(encoding='utf-8')
         print(json.dumps(response, ensure_ascii=False))
-        
+
         sys.exit(0)
-        
+
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        # Return JSON error instead of exit code 1
+        response = {
+            "answer": f"Error: {str(e)}",
+            "source": "general",
+            "tool_calls": []
+        }
+        print(json.dumps(response, ensure_ascii=False))
+        sys.exit(0)
 
 
 if __name__ == "__main__":
