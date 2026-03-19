@@ -605,11 +605,9 @@ def main() -> None:
         answer, source, tool_calls = run_agentic_loop(args.question, config)
         response = format_response(answer, source, tool_calls)
 
-        # Output JSON to stdout (single line, ensure ASCII for Windows compatibility)
-        # Use sys.stdout.buffer for proper Unicode handling
-        import io
-        sys.stdout.reconfigure(encoding='utf-8')
-        print(json.dumps(response, ensure_ascii=False))
+        # Output JSON to stdout
+        # Use ensure_ascii=False for Unicode support
+        print(json.dumps(response, ensure_ascii=False), flush=True)
 
         sys.exit(0)
 
@@ -620,7 +618,7 @@ def main() -> None:
             "source": "general",
             "tool_calls": []
         }
-        print(json.dumps(response, ensure_ascii=False))
+        print(json.dumps(response, ensure_ascii=False), flush=True)
         sys.exit(0)
 
 
