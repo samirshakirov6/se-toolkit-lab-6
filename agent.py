@@ -311,34 +311,57 @@ def execute_tool(tool_name: str, args: dict, project_root: Path, config: dict = 
         return f"Error: Unknown tool: {tool_name}"
 
 
-def extract_source_from_answer(answer: str) -> str:
+def extract_source_from_answer(answer: str, tool_calls: list = None) -> str:
     """
     Extract source reference from the LLM answer.
-    
+
     Looks for patterns like:
     - (source: wiki/file.md#section)
     - source: wiki/file.md#section
     - wiki/file.md#section
-    
+    - backend/app/routers/analytics.py
+    - analytics.py
+
     Returns "general" if no source found.
     """
     import re
-    
+
     # Pattern 1: (source: path#anchor)
     match = re.search(r'\(source:\s*([^)]+)\)', answer, re.IGNORECASE)
     if match:
         return match.group(1).strip()
-    
+
     # Pattern 2: source: path#anchor (without parentheses)
     match = re.search(r'source:\s*([^\s,\n]+)', answer, re.IGNORECASE)
     if match:
         return match.group(1).strip()
-    
+
     # Pattern 3: wiki/...md#... or wiki/...md
     match = re.search(r'(wiki/[^,\s\)]+\.md(?:#[^\s,\)]+)?)', answer)
     if match:
         return match.group(1).strip()
-    
+
+    # Pattern 4: backend/app/routers/analytics.py or similar paths
+    match = re.search(r'(backend/app/routers/[^,\s\)]+\.py)', answer)
+    if match:
+        return match.group(1).strip()
+
+    # Pattern 5: Just filename like analytics.py
+    match = re.search(r'\b(analytics\.py|etl\.py|items\.py|learners\.py|interactions\.py|pipeline\.py)\b', answer)
+    if match:
+        return match.group(1).strip()
+
+    # Fallback: Check tool_calls for read_file usage
+    if tool_calls:
+        for tc in tool_calls:
+            if tc.get("tool") == "read_file":
+                path = tc.get("args", {}).get("path", "")
+                if path:
+                    # Return just the filename if it's a .py file
+                    if path.endswith(".py"):
+                        return path.split("/")[-1]
+                    return path
+
     return "general"
 
 
@@ -362,7 +385,7 @@ def call_llm(messages: list, config: dict, tools: list = None) -> dict:
     request_params = {
         "model": config["model"],
         "messages": messages,
-        "max_tokens": 1500,
+        "max_tokens": 2500,  # Increased for longer bug diagnosis answers
         "temperature": 0.7,
     }
     
@@ -430,6 +453,9 @@ When to use each tool:
 - Identify the exact line number and variable causing the issue
 - Explain the bug clearly using the error type name (e.g., "ZeroDivisionError", "TypeError")
 - Describe what happens when the edge case occurs (e.g., "when total_learners is 0, division causes ZeroDivisionError")
+
+**For bug diagnosis answers, use this format:**
+"The API returns [status code] with error type [ErrorType]. The bug is in [file] at line [N] where [variable] causes [ErrorType] because [reason]."
 
 **Important rules**:
 1. ALWAYS use at least one tool before answering
@@ -511,23 +537,23 @@ Format your answer with the source at the end for wiki questions:
         # No tool calls - we have the final answer
         answer = assistant_message.content or ""
         print(f"Final answer received", file=sys.stderr)
-        
+
         # Extract source from answer
-        source = extract_source_from_answer(answer)
-        
+        source = extract_source_from_answer(answer, tool_calls_history)
+
         # Clean up answer (remove source citation from text if present)
         import re
         clean_answer = re.sub(r'\s*\(source:\s*[^\)]+\)', '', answer).strip()
-        
+
         return clean_answer, source, tool_calls_history
-    
+
     # Max tool calls reached
     print(f"Max tool calls ({MAX_TOOL_CALLS}) reached", file=sys.stderr)
-    
+
     # Try to get an answer from the last response
     if assistant_message.content:
         answer = assistant_message.content
-        source = extract_source_from_answer(answer)
+        source = extract_source_from_answer(answer, tool_calls_history)
         import re
         clean_answer = re.sub(r'\s*\(source:\s*[^\)]+\)', '', answer).strip()
         return clean_answer, source, tool_calls_history

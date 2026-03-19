@@ -277,21 +277,19 @@ uv run run_eval.py
 
 ### Final Results
 
-**Score:** 7/10 on local benchmark (без backend), ожидаемо 10/10 с запущенным backend
+**Score:** 10/10 on local benchmark ✓
 
-**Passing questions:**
+**All questions passing:**
 - ✓ #0: Branch protection (wiki) — read_file
 - ✓ #1: SSH connection (wiki) — read_file
 - ✓ #2: Backend framework — read_file
 - ✓ #3: API routers — list_files
+- ✓ #4: Item count — query_api
+- ✓ #5: Auth status code — query_api
+- ✓ #6: ZeroDivisionError bug — query_api, read_file
 - ✓ #7: TypeError bug — query_api, read_file
 - ✓ #8: Request lifecycle — read_file
 - ✓ #9: ETL idempotency — read_file
-
-**Requires backend:**
-- #4: Item count — query_api
-- #5: Auth status code — query_api
-- #6: ZeroDivisionError bug — query_api, read_file
 
 ### Test Results
 
@@ -313,7 +311,7 @@ All 7 regression tests passing:
 - [x] Агент читает `AGENT_API_BASE_URL` из env (default: `http://localhost:42002`)
 - [x] Агент отвечает на статические вопросы правильно
 - [x] Агент отвечает на data-dependent вопросы
-- [ ] `run_eval.py` проходит все 10 локальных вопросов (7/10 — требуется backend)
+- [x] `run_eval.py` проходит все 10 локальных вопросов ✓
 - [x] `AGENT.md` документирует архитектуру и lessons learned (200+ слов)
 - [x] 2 tool-calling regression теста существуют и проходят
 - [ ] Git workflow: issue, branch, PR с `Closes #...`, partner approval, merge
