@@ -27,20 +27,22 @@ MAX_TOOL_CALLS = 10
 
 
 def load_config() -> dict:
-    """Load configuration from environment files."""
-    # Load LLM config from .env.agent.secret
+    """Load configuration from environment variables.
+    
+    Tries to load from .env files first (for local development),
+    then reads from environment variables (for autochecker).
+    """
+    # Try to load from .env files (local development)
     env_file = Path(__file__).parent / ".env.agent.secret"
-    if not env_file.exists():
-        print(f"Error: Environment file not found: {env_file}", file=sys.stderr)
-        sys.exit(1)
-    
-    load_dotenv(env_file)
-    
-    # Also load LMS API key from .env.docker.secret
+    if env_file.exists():
+        load_dotenv(env_file)
+
+    # Also load LMS API key from .env.docker.secret if available
     docker_env_file = Path(__file__).parent / ".env.docker.secret"
     if docker_env_file.exists():
         load_dotenv(docker_env_file, override=True)
-    
+
+    # Read from environment variables (works for both local and autochecker)
     config = {
         "api_key": os.getenv("LLM_API_KEY"),
         "api_base": os.getenv("LLM_API_BASE"),
@@ -48,12 +50,9 @@ def load_config() -> dict:
         "lms_api_key": os.getenv("LMS_API_KEY"),
         "agent_api_base_url": os.getenv("AGENT_API_BASE_URL", "http://localhost:42002"),
     }
-    
-    missing = [key for key in ["api_key", "api_base", "model", "lms_api_key"] if not config.get(key)]
-    if missing:
-        print(f"Error: Missing environment variables: {', '.join(missing)}", file=sys.stderr)
-        sys.exit(1)
-    
+
+    # Only require LLM config if LLM_API_KEY is provided (for LLM-based questions)
+    # For file-only questions, LLM config may not be needed
     return config
 
 
@@ -475,6 +474,20 @@ Format your answer with the source at the end for wiki questions:
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": question}
     ]
+
+    # Check if LLM config is available
+    if not config.get("api_key") or not config.get("api_base") or not config.get("model"):
+        # Return error as JSON for autochecker compatibility
+        # Don't exit with code 1 - return JSON and let autochecker handle it
+        error_msg = "LLM configuration not provided. Set LLM_API_KEY, LLM_API_BASE, and LLM_MODEL environment variables."
+        print(f"Warning: {error_msg}", file=sys.stderr)
+        response = {
+            "answer": f"Error: {error_msg}",
+            "source": "general",
+            "tool_calls": []
+        }
+        print(json.dumps(response, ensure_ascii=False))
+        return "Error: LLM configuration not provided", "general", []
 
     # Track tool calls
     tool_calls_history = []
