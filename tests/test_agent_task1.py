@@ -215,16 +215,79 @@ def test_item_count_question():
     print(f"✓ Test passed: answer='{response['answer'][:50]}...', tool_calls={len(response['tool_calls'])}")
 
 
+def test_completion_rate_bug():
+    """Test that agent identifies ZeroDivisionError in /analytics/completion-rate (Task 3)."""
+    project_root = Path(__file__).parent.parent
+
+    # Test question about completion-rate bug
+    question = "Query /analytics/completion-rate for a lab with no data (e.g., lab-99). What error do you get, and what is the bug in the source code?"
+
+    response = run_agent(question, project_root)
+
+    # Verify answer exists
+    assert "answer" in response, "Missing 'answer' field"
+    assert len(response["answer"].strip()) > 0, "'answer' cannot be empty"
+
+    # Verify answer contains bug keywords (ZeroDivisionError or division by zero)
+    answer_lower = response["answer"].lower()
+    has_zero_division = "zerodivisionerror" in answer_lower or "division by zero" in answer_lower or "division" in answer_lower and "zero" in answer_lower
+    assert has_zero_division, f"Expected ZeroDivisionError or division by zero in answer, got: {response['answer'][:200]}"
+
+    # Verify tool_calls is not empty
+    assert "tool_calls" in response, "Missing 'tool_calls' field"
+    assert isinstance(response["tool_calls"], list), "'tool_calls' must be an array"
+    assert len(response["tool_calls"]) > 0, "Expected tool calls for bug diagnosis question"
+
+    # Verify query_api and read_file were used (tool chaining for bug diagnosis)
+    tool_names = [tc.get("tool") for tc in response["tool_calls"]]
+    assert "query_api" in tool_names or "read_file" in tool_names, \
+        f"Expected query_api or read_file in tool_calls for bug diagnosis, got: {tool_names}"
+
+    print(f"✓ Test passed: answer='{response['answer'][:100]}...'")
+
+
+def test_top_learners_bug():
+    """Test that agent identifies TypeError in /analytics/top-learners (Task 3)."""
+    project_root = Path(__file__).parent.parent
+
+    # Test question about top-learners bug
+    question = "The /analytics/top-learners endpoint crashes for some labs. Query it, find the error, and read the source code to explain what went wrong."
+
+    response = run_agent(question, project_root)
+
+    # Verify answer exists
+    assert "answer" in response, "Missing 'answer' field"
+    assert len(response["answer"].strip()) > 0, "'answer' cannot be empty"
+
+    # Verify answer contains bug keywords (TypeError, None, sorted)
+    answer_lower = response["answer"].lower()
+    has_type_error = "typeerror" in answer_lower or "nonetype" in answer_lower or ("none" in answer_lower and "sorted" in answer_lower)
+    assert has_type_error, f"Expected TypeError/None/sorted in answer, got: {response['answer'][:200]}"
+
+    # Verify tool_calls is not empty
+    assert "tool_calls" in response, "Missing 'tool_calls' field"
+    assert isinstance(response["tool_calls"], list), "'tool_calls' must be an array"
+    assert len(response["tool_calls"]) > 0, "Expected tool calls for bug diagnosis question"
+
+    # Verify read_file was used to find the bug in source code
+    tool_names = [tc.get("tool") for tc in response["tool_calls"]]
+    assert "read_file" in tool_names, f"Expected read_file in tool_calls for source code analysis, got: {tool_names}"
+
+    print(f"✓ Test passed: answer='{response['answer'][:100]}...'")
+
+
 if __name__ == "__main__":
     print("Running Task 1 test...")
     test_agent_returns_valid_json()
-    
+
     print("\nRunning Task 2 tests...")
     test_merge_conflict_question()
     test_wiki_files_question()
-    
+
     print("\nRunning Task 3 tests...")
     test_framework_question()
     test_item_count_question()
-    
+    test_completion_rate_bug()
+    test_top_learners_bug()
+
     print("\nAll tests passed!")

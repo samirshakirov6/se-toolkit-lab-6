@@ -420,17 +420,25 @@ When to use each tool:
 - Example: "How many items?" → query_api GET /items/
 
 **Bug diagnosis**:
-- First use query_api to reproduce the error
-- Then use read_file to find the buggy code
-- Explain the bug and suggest a fix
+- First use query_api to reproduce the error and capture the exact error message
+- Then use read_file to read the source code of the specific router/file mentioned in the error
+- Look for common Python bugs in the code:
+  - ZeroDivisionError: division by zero when denominator is 0
+  - TypeError: operations on None values, sorting None values, NoneType errors
+  - KeyError: accessing missing dictionary keys
+  - IndexError: accessing out-of-range list indices
+- Identify the exact line number and variable causing the issue
+- Explain the bug clearly using the error type name (e.g., "ZeroDivisionError", "TypeError")
+- Describe what happens when the edge case occurs (e.g., "when total_learners is 0, division causes ZeroDivisionError")
 
 **Important rules**:
 1. ALWAYS use at least one tool before answering
 2. Always cite sources for wiki answers
 3. For API queries, include the endpoint path in your reasoning
-4. If query_api returns an error, analyze it and try to find the root cause in source code
-5. Maximum 10 tool calls total
-6. To test authentication, use query_api with use_auth=false
+4. If query_api returns an error, analyze it and read the specific source file to find the bug
+5. For bug questions, include the error type name in your answer (e.g., ZeroDivisionError, TypeError)
+6. Maximum 10 tool calls total
+7. To test authentication, use query_api with use_auth=false
 
 Format your answer with the source at the end for wiki questions:
 "Your answer here. (source: wiki/file.md#section-name)"
